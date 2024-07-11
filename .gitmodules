@@ -4,3 +4,6 @@
 [submodule "libs/shaderc"]
 	path = libs/shaderc
 	url = git@github.com:google/shaderc.git
+[submodule "libs/spirv_cross"]
+	path = libs/spirv_cross
+	url = git@github.com:KhronosGroup/SPIRV-Cross.git
