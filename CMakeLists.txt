@@ -5,6 +5,12 @@ project(arkin_shader)
 # Arkin
 add_subdirectory("${CMAKE_SOURCE_DIR}/libs/arkin")
 
+# Shaderc
+set(SHADERC_SKIP_INSTALL true)
+set(SHADERC_SKIP_TESTS true)
+set(SHADERC_SKIP_EXAMPLES true)
+add_subdirectory("${CMAKE_SOURCE_DIR}/libs/shaderc")
+
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED true)
 set(CMAKE_EXPORT_COMPILE_COMMANDS true)
@@ -19,4 +25,4 @@ set(SOURCES
 
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES})
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC "${CMAKE_SOURCE_DIR}/include")
-target_link_libraries(${CMAKE_PROJECT_NAME} arkin)
+target_link_libraries(${CMAKE_PROJECT_NAME} arkin shaderc)
