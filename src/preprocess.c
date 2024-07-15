@@ -8,6 +8,9 @@ struct Parser {
 
     ArStr source;
     U32 i;
+    U32 token_start;
+    U32 token_end;
+    U32 last_token_end;
 };
 
 typedef enum {
@@ -176,6 +179,16 @@ Token tokenize_statement_list(ArArena *err_arena, ArStrList statement_list) {
 
 ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths);
 
+void add_module_part(Preprocessor *pp) {
+    Parser *parser = pp->parser_stack;
+    if (parser->token_start - parser->last_token_end == 0) {
+        return;
+    }
+    ArStr module_part = ar_str_sub(parser->source, parser->last_token_end, parser->token_start - 1);
+    module_part = ar_str_push_copy(pp->arena, module_part);
+    ar_str_list_push(pp->arena, &pp->module_parts, module_part);
+}
+
 void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
     switch (token.type) {
         case TOKEN_END:
@@ -183,6 +196,8 @@ void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
                 ar_error("Extranious end statment.");
                 break;
             }
+
+            add_module_part(pp);
 
             ArStr complete_module = ar_str_list_join(pp->arena, pp->module_parts);
             B8 unique = ar_hash_map_insert(pp->module_map, pp->module_name, complete_module);
@@ -275,12 +290,18 @@ void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
         case TOKEN_GLSL:
             break;
     }
+
+    if (pp->current_module != MODULE_NONE) {
+        add_module_part(pp);
+    }
 }
 
 ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths) {
     Parser parser = {
         .source = source,
     };
+
+    ar_sll_stack_push(pp->parser_stack, &parser);
 
     while (parser.i < parser.source.len) {
         if (parser_peek(parser) == '/' && parser_peek_next(parser) == '/') {
@@ -291,6 +312,8 @@ ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths) {
         }
 
         if (parser_peek(parser) == '#') {
+            parser.last_token_end = parser.token_end;
+            parser.token_start = parser.i;
             parser.i++;
             ArStr statement = extract_statement(&parser);
             ArTemp scratch = ar_scratch_get(NULL, 0);
@@ -298,9 +321,13 @@ ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths) {
             Token token = tokenize_statement_list(scratch.arena, statement_list);
             expand_token(pp, token, paths);
             ar_scratch_release(&scratch);
+            parser.token_end = parser.i + 1;
         }
+
         parser.i++;
     }
+
+    ar_sll_stack_pop(pp->parser_stack);
 
     return source;
 }
@@ -334,7 +361,7 @@ ArStr preprocess(ArArena *arena, ArStr source, ArStrList paths) {
     };
 
     Preprocessor pp = {
-        .arena = scratch.arena,
+        .arena = arena,
         .module_map = ar_hash_map_init(module_map_desc),
     };
 
