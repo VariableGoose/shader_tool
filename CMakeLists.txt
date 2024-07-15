@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.29)
 project(arkin_shader)
 
 # Arkin
+set(ARKIN_DEBUG true)
 add_subdirectory("${CMAKE_SOURCE_DIR}/libs/arkin")
 
 # Shaderc
@@ -26,8 +27,12 @@ set(CMAKE_BUILD_TYPE Debug)
 
 set(SOURCES
     src/main.c
+    src/utils.c
+    src/preprocess.c
 )
 
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES})
-target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC "${CMAKE_SOURCE_DIR}/include")
-target_link_libraries(${CMAKE_PROJECT_NAME} arkin shaderc spirv-cross-c)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/include")
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/src")
+# target_link_libraries(${CMAKE_PROJECT_NAME} arkin shaderc spirv-cross-c)
+target_link_libraries(${CMAKE_PROJECT_NAME} arkin)

@@ -1,95 +1,70 @@
 #include "arkin_core.h"
 #include "arkin_log.h"
 
-#include <shaderc/shaderc.h>
-#include <spirv_cross_c.h>
+#include "internal.h"
 
-const ArStr vert_source = ar_str_lit("\
-#version 450 core\n\
-layout (location = 0) in vec2 v_pos;\n\
-layout (location = 1) in vec2 v_uv;\n\
-layout (location = 2) in vec4 v_color;\n\
-layout (location = 0) out vec2 f_uv;\n\
-layout (location = 1) out vec4 f_color;\n\
-void main() {\n\
-    f_uv = v_uv;\n\
-    f_color = v_color;\n\
-    gl_Position = vec4(v_pos, 0.0, 1.0);\n\
-}\n\
-");
+//
+// Steps:
+// Preprocess
+// Split into modules
+// Translate to spirv
+// Do reflection
+// Translate to other shader languages
+//
+// Generate a header file (CLI only)
+//
 
-ArStr compile_to_spv(ArArena *arena, const char *name, ArStr src) {
-    shaderc_compiler_t compiler = shaderc_compiler_initialize();
+//
+// Search paths:
+// Current directory
+// Relative to the current file
+//
 
-    shaderc_compile_options_t options = shaderc_compile_options_initialize();
-    shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_performance);
+static void log(ArStr str) {
+    U32 last = 0;
+    U32 curr = 0;
+    while (curr < str.len) {
+        if (str.data[curr] == '\n') {
+            if (curr == last) {
+                ar_info("");
+                curr++;
+                last = curr;
+                continue;
+            }
 
-    shaderc_compilation_result_t result = shaderc_compile_into_spv(
-            compiler,
-            (const char *) src.data,
-            src.len,
-            shaderc_vertex_shader,
-            name,
-            "main",
-            options
-        );
+            ArStr substr = ar_str_sub(str, last, curr - 1);
+            ar_info("%.*s", (I32) substr.len, substr.data);
+            last = curr + 1;
+        }
 
-    U32 errs = shaderc_result_get_num_errors(result);
-    if (errs > 0) {
-        const char *err = shaderc_result_get_error_message(result);
-        ar_error("%s", err);
-        return (ArStr) {0};
+        curr++;
     }
-
-    ArStr spv = ar_str(
-            (const U8 *) shaderc_result_get_bytes(result),
-            shaderc_result_get_length(result)
-        );
-    ArStr spv_result = ar_str_push_copy(arena, spv);
-
-    shaderc_compile_options_release(options);
-    shaderc_result_release(result);
-    shaderc_compiler_release(compiler);
-
-    return spv_result;
+    ArStr substr = ar_str_sub(str, last, str.len);
+    ar_info("%.*s", (I32) substr.len, substr.data);
 }
 
-void error_cb(void *userdata, const char *error) {
-    (void) userdata;
-    ar_error("%s", error);
-}
-
-ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
-    spvc_context ctx;
-    spvc_context_create(&ctx);
-
-    spvc_context_set_error_callback(ctx, error_cb, NULL);
-
-    spvc_parsed_ir ir;
-    spvc_context_parse_spirv(ctx, (const SpvId *) spv.data, spv.len / sizeof(SpvId), &ir);
-
-    spvc_compiler compiler;
-    spvc_context_create_compiler(ctx, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
-
-    const char *result;
-    spvc_compiler_compile(compiler, &result);
-    ArStr glsl_result = ar_str_cstr(result);
-    glsl_result = ar_str_push_copy(arena, glsl_result);
-
-    spvc_context_destroy(ctx);
-
-    return glsl_result;
-}
-
-I32 main(void) {
+I32 main(I32 argc, char **argv) {
     arkin_init(&(ArkinCoreDesc) {
             .error.callback = ar_log_error_callback
         });
     ArArena *arena = ar_arena_create_default();
 
-    ArStr spv = compile_to_spv(arena, "vert_test", vert_source);
-    ArStr glsl = compile_to_glsl(arena, spv);
-    ar_debug("%.*s", (I32) glsl.len, glsl.data);
+    test_dirname();
+
+    if (argc < 2) {
+        ar_error("No input file provided.");
+    }
+    ArStr filepath = ar_str_cstr(argv[1]);
+    ArStr file = read_file(arena, filepath);
+
+    ArStrList path_list = {0};
+    ArStr file_dir = dirname(ar_str_cstr(argv[1]));
+    ar_str_list_push(arena, &path_list, file_dir);
+    ar_str_list_push(arena, &path_list, ar_str_lit("."));
+
+    file = preprocess(arena, file, path_list);
+
+    // log(file);
 
     ar_arena_destroy(&arena);
     arkin_terminate();
