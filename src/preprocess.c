@@ -321,7 +321,8 @@ ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths) {
             Token token = tokenize_statement_list(scratch.arena, statement_list);
             expand_token(pp, token, paths);
             ar_scratch_release(&scratch);
-            parser.token_end = parser.i + 1;
+            parser.i++;
+            parser.token_end = parser.i;
         }
 
         parser.i++;
