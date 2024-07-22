@@ -2,9 +2,9 @@
 #include "arkin_log.h"
 #include "internal.h"
 
-typedef struct Parser Parser;
-struct Parser {
-    Parser *next;
+typedef struct FileParser FileParser;
+struct FileParser {
+    FileParser *next;
 
     ArStr source;
     U32 i;
@@ -12,6 +12,14 @@ struct Parser {
     U32 token_end;
     U32 last_token_end;
 };
+
+U8 file_parser_peek(FileParser parser) {
+    return parser.source.data[parser.i];
+}
+
+U8 file_parser_peek_next(FileParser parser) {
+    return parser.source.data[parser.i + 1];
+}
 
 typedef enum {
     MODULE_NONE,
@@ -26,23 +34,20 @@ struct Module {
     ModuleType type;
 };
 
-typedef struct Preprocessor Preprocessor;
-struct Preprocessor {
+typedef struct Parser Parser;
+struct Parser {
     ArArena *arena;
-    Parser *parser_stack;
+    FileParser *file_parser_stack;
     ModuleType current_module;
     ArStrList module_parts;
     ArHashMap *module_map;
     ArStr module_name;
+    struct {
+        ArStr name;
+        Module vert;
+        Module frag;
+    } program;
 };
-
-U8 parser_peek(Parser parser) {
-    return parser.source.data[parser.i];
-}
-
-U8 parser_peek_next(Parser parser) {
-    return parser.source.data[parser.i + 1];
-}
 
 const ArStr GLSL_KEYWORDS[] = {
     ar_str_lit("define"),
@@ -103,9 +108,9 @@ struct Token {
     ArStr args[4];
 };
 
-ArStr extract_statement(Parser *parser) {
+ArStr extract_statement(FileParser *parser) {
     U32 start = parser->i;
-    while (parser_peek(*parser) != '\n') {
+    while (file_parser_peek(*parser) != '\n') {
         parser->i++;
     }
     U32 end = parser->i - 1;
@@ -183,78 +188,106 @@ Token tokenize_statement_list(ArArena *err_arena, ArStrList statement_list) {
     return token;
 }
 
-ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths);
-
-void add_module_part(Preprocessor *pp) {
-    Parser *parser = pp->parser_stack;
-    if (parser->token_start - parser->last_token_end == 2) {
+void add_module_part(Parser *parser) {
+    FileParser *file_parser = parser->file_parser_stack;
+    if (file_parser->token_start - file_parser->last_token_end == 2) {
         return;
     }
-    ArStr module_part = ar_str_sub(parser->source, parser->last_token_end, parser->token_start - 1);
-    module_part = ar_str_push_copy(pp->arena, module_part);
-    ar_str_list_push(pp->arena, &pp->module_parts, module_part);
+    ArStr module_part = ar_str_sub(file_parser->source, file_parser->last_token_end, file_parser->token_start - 1);
+    module_part = ar_str_push_copy(parser->arena, module_part);
+    ar_str_list_push(parser->arena, &parser->module_parts, module_part);
 }
 
-void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
+void parse(Parser *parser, ArStr source, ArStrList paths);
+
+void expand_token(Parser *parser, Token token, ArStrList paths) {
     switch (token.type) {
         case TOKEN_END:
-            if (pp->current_module == MODULE_NONE) {
+            if (parser->current_module == MODULE_NONE) {
                 ar_error("Extranious end statment.");
                 break;
             }
 
-            add_module_part(pp);
+            add_module_part(parser);
 
             Module module = {
-                .code = ar_str_trim(ar_str_list_join(pp->arena, pp->module_parts)),
-                .type = pp->current_module,
+                .code = ar_str_trim(ar_str_list_join(parser->arena, parser->module_parts)),
+                .type = parser->current_module,
             };
-            B8 unique = ar_hash_map_insert(pp->module_map, pp->module_name, module);
+            B8 unique = ar_hash_map_insert(parser->module_map, parser->module_name, module);
             if (!unique) {
-                ar_error("%.*s: Module has already been defined.", (I32) pp->module_name.len, pp->module_name.data);
+                ar_error("%.*s: Module has already been defined.", (I32) parser->module_name.len, parser->module_name.data);
             }
 
-            pp->current_module = MODULE_NONE;
-            pp->module_name = (ArStr) {0};
-            pp->module_parts = AR_STR_LIST_INIT;
+            parser->current_module = MODULE_NONE;
+            parser->module_name = (ArStr) {0};
+            parser->module_parts = AR_STR_LIST_INIT;
 
             break;
         case TOKEN_MODULE:
-            if (pp->current_module != MODULE_NONE) {
+            if (parser->current_module != MODULE_NONE) {
                 ar_error("%.*s: New module started before ending the last module.", (I32) token.args[0].len, token.args[0].data);
                 break;
             }
 
-            pp->module_name = token.args[0];
-            pp->current_module = MODULE_MODULE;
+            parser->module_name = token.args[0];
+            parser->current_module = MODULE_MODULE;
             break;
         case TOKEN_VERT:
-            if (pp->current_module != MODULE_NONE) {
+            if (parser->current_module != MODULE_NONE) {
                 ar_error("%.*s: New vertex module started before ending the last module.", (I32) token.args[0].len, token.args[0].data);
                 break;
             }
 
-            pp->module_name = token.args[0];
-            pp->current_module = MODULE_VERT;
+            parser->module_name = token.args[0];
+            parser->current_module = MODULE_VERT;
             break;
         case TOKEN_FRAG:
-            if (pp->current_module != MODULE_NONE) {
+            if (parser->current_module != MODULE_NONE) {
                 ar_error("%.*s: New fragment module started before ending the last module.", (I32) token.args[0].len, token.args[0].data);
                 break;
             }
 
-            pp->module_name = token.args[0];
-            pp->current_module = MODULE_FRAG;
+            parser->module_name = token.args[0];
+            parser->current_module = MODULE_FRAG;
             break;
-        case TOKEN_PROGRAM:
-            break;
+        case TOKEN_PROGRAM: {
+            ArStr name = token.args[0];
+            ArStr vert_module_key = token.args[1];
+            ArStr frag_module_key = token.args[2];
+
+            if (parser->program.name.data != NULL) {
+                ar_error("%.*s: Program has already been defined.", (I32) name.len, name.data);
+                break;
+            }
+
+            Module vert_module = ar_hash_map_get(parser->module_map, vert_module_key, Module);
+            Module frag_module = ar_hash_map_get(parser->module_map, frag_module_key, Module);
+
+            B8 failed = false;
+            if (vert_module.type != MODULE_VERT) {
+                ar_error("%.*s: Vertex module not found.", (I32) vert_module_key.len, vert_module_key.data);
+                failed = true;
+            }
+            if (frag_module.type != MODULE_FRAG) {
+                ar_error("%.*s: Fragment module not found.", (I32) frag_module_key.len, frag_module_key.data);
+                failed = true;
+            }
+            if (failed) {
+                break;
+            }
+
+            parser->program.name = name;
+            parser->program.vert = vert_module;
+            parser->program.frag = frag_module;
+        } break;
         case TOKEN_INCLUDE:
             if (paths.first == NULL) {
                 ar_error("Cannot include files without providing search paths.");
                 break;
             }
 
-            ArTemp scratch = ar_scratch_get(NULL, 0);
+            ArTemp scratch = ar_scratch_get(&parser->arena, 1);
             FILE *fp = NULL;
             ArStr path = {0};
             for (ArStrListNode *curr = paths.first; curr != NULL; curr = curr->next) {
@@ -277,18 +310,18 @@ void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
             ArStr path_dir = dirname(path);
             ar_str_list_push_front(scratch.arena, &paths, path_dir);
             ar_str_list_pop(&paths);
-            _preprocess(pp, imported_file, paths);
+            parse(parser, imported_file, paths);
 
             ar_scratch_release(&scratch);
 
             break;
         case TOKEN_INCLUDE_MODULE: {
-            ArStr module_value = ar_hash_map_get(pp->module_map, token.args[0], ArStr);
+            ArStr module_value = ar_hash_map_get(parser->module_map, token.args[0], ArStr);
             if (module_value.data == NULL) {
                 ar_error("%.*s: Module couldn't be found.", (I32) token.args[0].len, token.args[0].data);
                 break;
             }
-            ar_str_list_push(pp->arena, &pp->module_parts, module_value);
+            ar_str_list_push(parser->arena, &parser->module_parts, module_value);
         } break;
         case TOKEN_CTYPEDEF:
             break;
@@ -296,57 +329,55 @@ void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
         case TOKEN_ERROR:
             ar_error("%.*s", (I32) token.error.len, token.error.data);
             break;
-        case TOKEN_GLSL: {
-        } break;
+        case TOKEN_GLSL:
+            break;
     }
 
-    if (pp->current_module != MODULE_NONE) {
-        add_module_part(pp);
+    if (parser->current_module != MODULE_NONE) {
+        add_module_part(parser);
     }
 }
 
-ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths) {
-    Parser parser = {
+void parse(Parser *parser, ArStr source, ArStrList paths) {
+    FileParser file_parser = {
         .source = source,
     };
 
-    ar_sll_stack_push(pp->parser_stack, &parser);
+    ar_sll_stack_push(parser->file_parser_stack, &file_parser);
 
-    while (parser.i < parser.source.len) {
-        if (parser_peek(parser) == '/' && parser_peek_next(parser) == '/') {
-            while (parser_peek(parser) != '\n') {
-                parser.i++;
+    while (file_parser.i < file_parser.source.len) {
+        if (file_parser_peek(file_parser) == '/' && file_parser_peek_next(file_parser) == '/') {
+            while (file_parser_peek(file_parser) != '\n') {
+                file_parser.i++;
             }
             continue;
         }
 
-        if (parser_peek(parser) == '#') {
-            parser.last_token_end = parser.token_end;
-            parser.token_start = parser.i;
-            parser.i++;
-            ArStr statement = extract_statement(&parser);
-            ArTemp scratch = ar_scratch_get(NULL, 0);
+        if (file_parser_peek(file_parser) == '#') {
+            file_parser.last_token_end = file_parser.token_end;
+            file_parser.token_start = file_parser.i;
+            file_parser.i++;
+            ArStr statement = extract_statement(&file_parser);
+            ArTemp scratch = ar_scratch_get(&parser->arena, 1);
             ArStrList statement_list = split_statement(scratch.arena, statement);
             Token token = tokenize_statement_list(scratch.arena, statement_list);
-            expand_token(pp, token, paths);
-            parser.token_end = parser.i;
+            expand_token(parser, token, paths);
+            file_parser.token_end = file_parser.i;
 
             if (token.type == TOKEN_GLSL) {
-                Parser *parser = pp->parser_stack;
-                ArStr module_part = ar_str_sub(parser->source, parser->token_start, parser->token_end);
-                module_part = ar_str_push_copy(pp->arena, module_part);
-                ar_str_list_push(pp->arena, &pp->module_parts, module_part);
+                FileParser *file_parser = parser->file_parser_stack;
+                ArStr module_part = ar_str_sub(file_parser->source, file_parser->token_start, file_parser->token_end);
+                module_part = ar_str_push_copy(parser->arena, module_part);
+                ar_str_list_push(parser->arena, &parser->module_parts, module_part);
             }
             ar_scratch_release(&scratch);
         }
 
 
-        parser.i++;
+        file_parser.i++;
     }
 
-    ar_sll_stack_pop(pp->parser_stack);
-
-    return source;
+    ar_sll_stack_pop(parser->file_parser_stack);
 }
 
 static U64 hash_str(const void *key, U64 len) {
@@ -362,9 +393,11 @@ static B8 str_eq(const void *a, const void *b, U64 len) {
     return ar_str_match(*_a, *_b, AR_STR_MATCH_FLAG_EXACT);
 }
 
-ArStr preprocess(ArArena *arena, ArStr source, ArStrList paths) {
+ParsedShader parse_shader(ArArena *arena, ArStr source, ArStrList paths) {
+    ArTemp scratch = ar_scratch_get(&arena, 1);
+
     ArHashMapDesc module_map_desc = {
-        .arena = arena,
+        .arena = scratch.arena,
         .capacity = 32,
 
         .hash_func = hash_str,
@@ -375,27 +408,23 @@ ArStr preprocess(ArArena *arena, ArStr source, ArStrList paths) {
         .null_value = &(Module) {0},
     };
 
-    Preprocessor pp = {
-        .arena = arena,
+    Parser parser = {
+        .arena = scratch.arena,
         .module_map = ar_hash_map_init(module_map_desc),
     };
 
-    _preprocess(&pp, source, paths);
+    parse(&parser, source, paths);
 
-    ArStr vert_code = {0};
+    ParsedShader shader = {
+        .program = {
+            .name = ar_str_push_copy(arena, parser.program.name),
+            .vertex_source = ar_str_push_copy(arena, parser.program.vert.code),
+            .fragment_source = ar_str_push_copy(arena, parser.program.frag.code),
+        },
+        .ctypes = NULL,
+    };
 
-    ArTemp scratch = ar_scratch_get(&arena, 1);
-    for (ArHashMapIter *iter = ar_hash_map_iter_init(scratch.arena, pp.module_map);
-        ar_hash_map_iter_valid(iter);
-        ar_hash_map_iter_next(iter)) {
-        ArStr *key = ar_hash_map_iter_get_key_ptr(iter);
-        Module *value = ar_hash_map_iter_get_value_ptr(iter);
-
-        if (value->type == MODULE_VERT) {
-            vert_code = ar_str_push_copy(arena, value->code);
-        }
-    }
     ar_scratch_release(&scratch);
 
-    return vert_code;
+    return shader;
 }

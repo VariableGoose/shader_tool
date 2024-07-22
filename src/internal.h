@@ -2,6 +2,18 @@
 
 #include "arkin_core.h"
 
+typedef struct ParsedShader ParsedShader;
+struct ParsedShader {
+    struct {
+        ArStr name;
+        ArStr vertex_source;
+        ArStr fragment_source;
+    } program;
+    ArHashMap *ctypes;
+};
+
+extern ParsedShader parse_shader(ArArena *arena, ArStr source, ArStrList paths);
+
 //
 // Utils
 //
@@ -18,7 +30,4 @@ extern ArStr read_file(ArArena *arena, ArStr path);
 // foobar.txt           ->      .
 // ./foobar.txt         ->      .
 extern ArStr dirname(ArStr filepath);
-
-extern ArStr preprocess(ArArena *arena, ArStr source, ArStrList paths);
-
 extern void test_dirname(void);
