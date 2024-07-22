@@ -20,6 +20,12 @@ typedef enum {
     MODULE_FRAG,
 } ModuleType;
 
+typedef struct Module Module;
+struct Module {
+    ArStr code;
+    ModuleType type;
+};
+
 typedef struct Preprocessor Preprocessor;
 struct Preprocessor {
     ArArena *arena;
@@ -181,7 +187,7 @@ ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths);
 
 void add_module_part(Preprocessor *pp) {
     Parser *parser = pp->parser_stack;
-    if (parser->token_start - parser->last_token_end == 0) {
+    if (parser->token_start - parser->last_token_end == 2) {
         return;
     }
     ArStr module_part = ar_str_sub(parser->source, parser->last_token_end, parser->token_start - 1);
@@ -199,8 +205,11 @@ void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
 
             add_module_part(pp);
 
-            ArStr complete_module = ar_str_list_join(pp->arena, pp->module_parts);
-            B8 unique = ar_hash_map_insert(pp->module_map, pp->module_name, complete_module);
+            Module module = {
+                .code = ar_str_trim(ar_str_list_join(pp->arena, pp->module_parts)),
+                .type = pp->current_module,
+            };
+            B8 unique = ar_hash_map_insert(pp->module_map, pp->module_name, module);
             if (!unique) {
                 ar_error("%.*s: Module has already been defined.", (I32) pp->module_name.len, pp->module_name.data);
             }
@@ -287,8 +296,8 @@ void expand_token(Preprocessor *pp, Token token, ArStrList paths) {
         case TOKEN_ERROR:
             ar_error("%.*s", (I32) token.error.len, token.error.data);
             break;
-        case TOKEN_GLSL:
-            break;
+        case TOKEN_GLSL: {
+        } break;
     }
 
     if (pp->current_module != MODULE_NONE) {
@@ -320,10 +329,17 @@ ArStr _preprocess(Preprocessor *pp, ArStr source, ArStrList paths) {
             ArStrList statement_list = split_statement(scratch.arena, statement);
             Token token = tokenize_statement_list(scratch.arena, statement_list);
             expand_token(pp, token, paths);
-            ar_scratch_release(&scratch);
-            parser.i++;
             parser.token_end = parser.i;
+
+            if (token.type == TOKEN_GLSL) {
+                Parser *parser = pp->parser_stack;
+                ArStr module_part = ar_str_sub(parser->source, parser->token_start, parser->token_end);
+                module_part = ar_str_push_copy(pp->arena, module_part);
+                ar_str_list_push(pp->arena, &pp->module_parts, module_part);
+            }
+            ar_scratch_release(&scratch);
         }
+
 
         parser.i++;
     }
@@ -347,8 +363,6 @@ static B8 str_eq(const void *a, const void *b, U64 len) {
 }
 
 ArStr preprocess(ArArena *arena, ArStr source, ArStrList paths) {
-    ArTemp scratch = ar_scratch_get(&arena, 1);
-
     ArHashMapDesc module_map_desc = {
         .arena = arena,
         .capacity = 32,
@@ -357,8 +371,8 @@ ArStr preprocess(ArArena *arena, ArStr source, ArStrList paths) {
         .eq_func = str_eq,
 
         .key_size = sizeof(ArStr),
-        .value_size = sizeof(ArStr),
-        .null_value = &(ArStr) {0},
+        .value_size = sizeof(Module),
+        .null_value = &(Module) {0},
     };
 
     Preprocessor pp = {
@@ -368,14 +382,20 @@ ArStr preprocess(ArArena *arena, ArStr source, ArStrList paths) {
 
     _preprocess(&pp, source, paths);
 
+    ArStr vert_code = {0};
+
+    ArTemp scratch = ar_scratch_get(&arena, 1);
     for (ArHashMapIter *iter = ar_hash_map_iter_init(scratch.arena, pp.module_map);
         ar_hash_map_iter_valid(iter);
         ar_hash_map_iter_next(iter)) {
         ArStr *key = ar_hash_map_iter_get_key_ptr(iter);
-        ArStr *value = ar_hash_map_iter_get_value_ptr(iter);
+        Module *value = ar_hash_map_iter_get_value_ptr(iter);
 
-        ar_info("%.*s: %.*s", (I32) key->len, key->data, (I32) value->len, value->data);
+        if (value->type == MODULE_VERT) {
+            vert_code = ar_str_push_copy(arena, value->code);
+        }
     }
-
     ar_scratch_release(&scratch);
+
+    return vert_code;
 }
