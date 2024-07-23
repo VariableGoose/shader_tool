@@ -7,7 +7,14 @@ layout (binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 projection;
+    int arr[16];
+    What what;
 } ubo;
+
+layout (binding = 1) uniform OtherUBO {
+    float foo;
+    mat4 mat;
+} other[4][16];
 
 layout (location = 0) in vec3 v_pos;
 layout (location = 1) in vec2 v_uv;

@@ -34,5 +34,5 @@ set(SOURCES
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES})
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/src")
-# target_link_libraries(${CMAKE_PROJECT_NAME} arkin shaderc spirv-cross-c)
-target_link_libraries(${CMAKE_PROJECT_NAME} arkin)
+target_link_libraries(${CMAKE_PROJECT_NAME} arkin shaderc spirv-cross-c)
+# target_link_libraries(${CMAKE_PROJECT_NAME} arkin)
