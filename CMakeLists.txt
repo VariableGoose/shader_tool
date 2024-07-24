@@ -6,11 +6,10 @@ project(arkin_shader)
 set(ARKIN_DEBUG true)
 add_subdirectory("${CMAKE_SOURCE_DIR}/libs/arkin")
 
-# Shaderc
-set(SHADERC_SKIP_INSTALL true)
-set(SHADERC_SKIP_TESTS true)
-set(SHADERC_SKIP_EXAMPLES true)
-add_subdirectory("${CMAKE_SOURCE_DIR}/libs/shaderc")
+# Glslang
+set(GLSLANG_ENABLE_INSTALL false)
+set(ENABLE_GLSLANG_BINARIES false)
+add_subdirectory("${CMAKE_SOURCE_DIR}/libs/glslang")
 
 # SPIRV-Cross
 set(SPIRV_CROSS_CLI false)
@@ -34,5 +33,5 @@ set(SOURCES
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES})
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/src")
-target_link_libraries(${CMAKE_PROJECT_NAME} arkin shaderc spirv-cross-c)
+target_link_libraries(${CMAKE_PROJECT_NAME} arkin glslang spirv-cross-c)
 # target_link_libraries(${CMAKE_PROJECT_NAME} arkin)

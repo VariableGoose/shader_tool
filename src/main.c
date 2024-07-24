@@ -20,44 +20,11 @@
 // Relative to the current file
 //
 
-#include <shaderc/shaderc.h>
+#include <glslang/Include/glslang_c_interface.h>
 #include <spirv_cross_c.h>
 
 ArStr compile_to_spv(ArArena *arena, const char *name, ArStr src) {
-    shaderc_compiler_t compiler = shaderc_compiler_initialize();
-
-    shaderc_compile_options_t options = shaderc_compile_options_initialize();
-    shaderc_compile_options_set_forced_version_profile(options, 450, shaderc_profile_core);
-    // shaderc_compile_options_set_forced_version_profile(options, 320, shaderc_profile_es);
-
-    shaderc_compilation_result_t result = shaderc_compile_into_spv(
-            compiler,
-            (const char *) src.data,
-            src.len,
-            shaderc_vertex_shader,
-            name,
-            "main",
-            options
-        );
-
-    U32 errs = shaderc_result_get_num_errors(result);
-    if (errs > 0) {
-        const char *err = shaderc_result_get_error_message(result);
-        ar_error("%s", err);
-        return (ArStr) {0};
-    }
-
-    ArStr spv = ar_str(
-            (const U8 *) shaderc_result_get_bytes(result),
-            shaderc_result_get_length(result)
-        );
-    ArStr spv_result = ar_str_push_copy(arena, spv);
-
-    shaderc_compile_options_release(options);
-    shaderc_result_release(result);
-    shaderc_compiler_release(compiler);
-
-    return spv_result;
+    return (ArStr) {0};
 }
 
 void error_cb(void *userdata, const char *error) {
@@ -67,21 +34,19 @@ void error_cb(void *userdata, const char *error) {
 
 typedef enum {
     REFLECTED_DATA_TYPE_VOID = 1,
-    REFLECTED_DATA_TYPE_B8,
-    REFLECTED_DATA_TYPE_I8,
-    REFLECTED_DATA_TYPE_U8,
-    REFLECTED_DATA_TYPE_I16,
-    REFLECTED_DATA_TYPE_U16,
-    REFLECTED_DATA_TYPE_I32,
-    REFLECTED_DATA_TYPE_U32,
-    REFLECTED_DATA_TYPE_I64,
-    REFLECTED_DATA_TYPE_U64,
-
-    REFLECTED_DATA_TYPE_F16 = 12,
-    REFLECTED_DATA_TYPE_F32,
-    REFLECTED_DATA_TYPE_F64,
-    REFLECTED_DATA_TYPE_STRUCT,
+    REFLECTED_DATA_TYPE_B32 = 2,
+    REFLECTED_DATA_TYPE_I32 = 7,
+    REFLECTED_DATA_TYPE_U32 = 8,
+    REFLECTED_DATA_TYPE_F32 = 13,
+    REFLECTED_DATA_TYPE_F64 = 14,
+    REFLECTED_DATA_TYPE_STRUCT = 15,
 } ReflectedDataType;
+
+typedef enum {
+    REFLECTED_VECTOR_TYPE_SCALER,
+    REFLECTED_VECTOR_TYPE_VECTOR,
+    REFLECTED_VECTOR_TYPE_MATRIX,
+} ReflectedVectorType;
 
 typedef struct ReflectedType ReflectedType;
 struct ReflectedType {
@@ -93,12 +58,12 @@ struct ReflectedType {
     // Array of length 'array_dimensions'.
     U32 *array_dimension_lengths;
 
+    U32 vec_size;
+    U32 cols;
+
     U32 member_count;
     ReflectedType *members;
 };
-
-void reflect_struct(ArArena *arena, spvc_compiler compiler, spvc_type type, ReflectedType *reflected) {
-}
 
 ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, ArStr name) {
     spvc_basetype basetype = spvc_type_get_basetype(type);
@@ -112,11 +77,31 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
         }
     }
 
+    U32 bit_width = spvc_type_get_bit_width(type);
+    ar_debug("Bit width: %u", bit_width);
+
+    // if vec_size == 1:
+    //     type = scaler
+    // else if vec_size > 1:
+    //     if columns == 1:
+    //         type = vector
+    //     else if vec_size > 1:
+    //         type = matrix
+
+    U32 vec_size = spvc_type_get_vector_size(type);
+    // ar_debug("Vec size: %u", vec_size);
+
+    U32 cols = spvc_type_get_columns(type);
+    // ar_debug("Columns: %u", cols);
+
     ReflectedType reflected = {
         .data_type = (ReflectedDataType) basetype,
         .name = ar_str_push_copy(arena, name),
         .array_dimensions = arr_dims,
         .array_dimension_lengths = arr_dim_lens,
+
+        .vec_size = vec_size,
+        .cols = cols,
     };
 
     switch (basetype) {
@@ -180,15 +165,17 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
 }
 
 void print_reflected_type(ReflectedType t) {
-    ar_info("%.*s", (I32) t.name.len, t.name.data);
+    ar_info("%.*s:", (I32) t.name.len, t.name.data);
+    ar_info("  Array dimensions: %u", t.array_dimensions);
+    for (U32 i = 0; i < t.array_dimensions; i++) {
+        ar_info("  Array dimension[%u] length: %u", i, t.array_dimension_lengths[i]);
+    }
+    ar_info("  Vector size: %u", t.vec_size);
+    ar_info("  Columns: %u", t.cols);
+
     for (U32 i = 0; i < t.member_count; i++) {
         print_reflected_type(t.members[i]);
     }
-
-    // ar_info("    Array dimensions: %u", t.array_dimensions);
-    // for (U32 i = 0; i < t.array_dimensions; i++) {
-    //     ar_info("        Array dimension[%u] length: %u", i, t.array_dimension_lengths[i]);
-    // }
 }
 
 ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
@@ -208,12 +195,24 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
     spvc_compiler_create_shader_resources(compiler, &resources);
     U32 count = 0;
     const spvc_reflected_resource *list = NULL;
-    spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, (size_t *) &count);
 
-    // https://www.reddit.com/r/vulkan/comments/8dkkub/spirvcross_how_can_i_get_ubo_structure_member/
+    // Uniform buffers
+    spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, (size_t *) &count);
     for (U32 i = 0; i < count; i++) {
         spvc_reflected_resource resource = list[i];
         spvc_type type = spvc_compiler_get_type_handle(compiler, resource.type_id);
+        ar_debug("%d", i);
+
+        ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
+        print_reflected_type(reflected_type);
+    }
+
+    // Samplers
+    spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, &list, (size_t *) &count);
+    for (U32 i = 0; i < count; i++) {
+        spvc_reflected_resource resource = list[i];
+        spvc_type type = spvc_compiler_get_type_handle(compiler, resource.type_id);
+        ar_debug("%d", i);
 
         ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
         print_reflected_type(reflected_type);
@@ -278,8 +277,8 @@ I32 main(I32 argc, char **argv) {
     // info(shader.program.fragment_source);
 
     ArStr spv = compile_to_spv(arena, "vert", shader.program.vertex_source);
-    ArStr glsl = compile_to_glsl(arena, spv);
-    // info(glsl);
+    // info(spv);
+    // ArStr glsl = compile_to_glsl(arena, spv);
 
     ar_arena_destroy(&arena);
     arkin_terminate();
