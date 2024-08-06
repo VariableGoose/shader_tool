@@ -9,7 +9,6 @@
 // Split into modules
 // Translate to spirv
 // Do reflection
-// Translate to other shader languages
 //
 // Generate a header file (CLI only)
 //
@@ -21,10 +20,78 @@
 //
 
 #include <glslang/Include/glslang_c_interface.h>
+#include <glslang/Include/glslang_c_shader_types.h>
+#include <glslang/Public/resource_limits_c.h>
 #include <spirv_cross_c.h>
 
 ArStr compile_to_spv(ArArena *arena, const char *name, ArStr src) {
-    return (ArStr) {0};
+    glslang_initialize_process();
+
+    const char *code_cstr = ar_str_to_cstr(arena, src);
+
+    glslang_input_t input = {
+        .language = GLSLANG_SOURCE_GLSL,
+        .stage = GLSLANG_STAGE_VERTEX,
+        .client = GLSLANG_CLIENT_VULKAN,
+        .client_version = GLSLANG_TARGET_VULKAN_1_2,
+        .target_language = GLSLANG_TARGET_SPV,
+        .target_language_version = GLSLANG_TARGET_SPV_1_5,
+
+        .code = code_cstr,
+        .default_version = 450,
+        .default_profile = GLSLANG_NO_PROFILE,
+        .force_default_version_and_profile = false,
+        .forward_compatible = false,
+        .messages = GLSLANG_MSG_DEFAULT_BIT,
+        .resource = glslang_default_resource(),
+    };
+
+    glslang_shader_t *shader = glslang_shader_create(&input);
+
+    if (!glslang_shader_preprocess(shader, &input)) {
+        ar_error("GLSLANG: Preprocessing failed.");
+        ar_error("%s", glslang_shader_get_info_log(shader));
+        ar_error("%s", glslang_shader_get_info_debug_log(shader));
+        glslang_shader_delete(shader);
+        return (ArStr) {0};
+    }
+
+    if (!glslang_shader_parse(shader, &input)) {
+        ar_error("GLSLANG: Parsing failed.");
+        ar_error("%s", glslang_shader_get_info_log(shader));
+        ar_error("%s", glslang_shader_get_info_debug_log(shader));
+        glslang_shader_delete(shader);
+        return (ArStr) {0};
+    }
+
+    glslang_program_t *program = glslang_program_create();
+    glslang_program_add_shader(program, shader);
+
+    if (!glslang_program_link(program, GLSLANG_MSG_SPV_RULES_BIT | GLSLANG_MSG_VULKAN_RULES_BIT)) {
+        ar_error("GLSLANG: Linking failed.");
+        ar_error("%s", glslang_program_get_info_log(program));
+        ar_error("%s", glslang_program_get_info_debug_log(program));
+        glslang_program_delete(program);
+        glslang_shader_delete(shader);
+        return (ArStr) {0};
+    }
+
+    glslang_program_SPIRV_generate(program, GLSLANG_STAGE_VERTEX);
+    U64 len = glslang_program_SPIRV_get_size(program) * sizeof(U32);
+    U8 *data = ar_arena_push_arr_no_zero(arena, U8, len);
+    glslang_program_SPIRV_get(program, (U32 *) data);
+
+    const char *spirv_messages = glslang_program_SPIRV_get_messages(program);
+    if (spirv_messages != NULL) {
+        ar_info("GLSLANG SPIR-V messages: %s", spirv_messages);
+    }
+
+    glslang_program_delete(program);
+    glslang_shader_delete(shader);
+
+    glslang_finalize_process();
+
+    return ar_str(data, len);
 }
 
 void error_cb(void *userdata, const char *error) {
@@ -78,7 +145,7 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
     }
 
     U32 bit_width = spvc_type_get_bit_width(type);
-    ar_debug("Bit width: %u", bit_width);
+    // ar_debug("Bit width: %u", bit_width);
 
     // if vec_size == 1:
     //     type = scaler
@@ -89,10 +156,7 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
     //         type = matrix
 
     U32 vec_size = spvc_type_get_vector_size(type);
-    // ar_debug("Vec size: %u", vec_size);
-
     U32 cols = spvc_type_get_columns(type);
-    // ar_debug("Columns: %u", cols);
 
     ReflectedType reflected = {
         .data_type = (ReflectedDataType) basetype,
@@ -193,29 +257,26 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
     // Reflection
     spvc_resources resources;
     spvc_compiler_create_shader_resources(compiler, &resources);
-    U32 count = 0;
-    const spvc_reflected_resource *list = NULL;
 
-    // Uniform buffers
-    spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, (size_t *) &count);
-    for (U32 i = 0; i < count; i++) {
-        spvc_reflected_resource resource = list[i];
-        spvc_type type = spvc_compiler_get_type_handle(compiler, resource.type_id);
-        ar_debug("%d", i);
+    spvc_resource_type reflection_types[] = {
+        SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
+        SPVC_RESOURCE_TYPE_SAMPLED_IMAGE,
+        SPVC_RESOURCE_TYPE_PUSH_CONSTANT,
+    };
 
-        ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
-        print_reflected_type(reflected_type);
-    }
+    for (U32 i = 0; i < 2; i++) {
+        Usize count = 0;
+        const spvc_reflected_resource *list = NULL;
+        spvc_resources_get_resource_list_for_type(resources, reflection_types[i], &list, &count);
+        for (U32 j = 0; j < count; j++) {
+            spvc_reflected_resource resource = list[j];
+            spvc_type type = spvc_compiler_get_type_handle(compiler, resource.type_id);
+            ar_debug("%d", j);
 
-    // Samplers
-    spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, &list, (size_t *) &count);
-    for (U32 i = 0; i < count; i++) {
-        spvc_reflected_resource resource = list[i];
-        spvc_type type = spvc_compiler_get_type_handle(compiler, resource.type_id);
-        ar_debug("%d", i);
-
-        ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
-        print_reflected_type(reflected_type);
+            ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
+            print_reflected_type(reflected_type);
+        }
+        ar_debug("i: %u", i);
     }
 
     const char *result;
@@ -262,6 +323,9 @@ I32 main(I32 argc, char **argv) {
 
     if (argc < 2) {
         ar_error("No input file provided.");
+        ar_arena_destroy(&arena);
+        arkin_terminate();
+        return 1;
     }
     ArStr filepath = ar_str_cstr(argv[1]);
     ArStr file = read_file(arena, filepath);
@@ -277,8 +341,8 @@ I32 main(I32 argc, char **argv) {
     // info(shader.program.fragment_source);
 
     ArStr spv = compile_to_spv(arena, "vert", shader.program.vertex_source);
-    // info(spv);
-    // ArStr glsl = compile_to_glsl(arena, spv);
+    ArStr glsl = compile_to_glsl(arena, spv);
+    info(glsl);
 
     ar_arena_destroy(&arena);
     arkin_terminate();
