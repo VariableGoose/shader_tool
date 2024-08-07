@@ -262,9 +262,10 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
         SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
         SPVC_RESOURCE_TYPE_SAMPLED_IMAGE,
         SPVC_RESOURCE_TYPE_PUSH_CONSTANT,
+        // SPVC_RESOURCE_TYPE_STAGE_INPUT,
     };
 
-    for (U32 i = 0; i < 2; i++) {
+    for (U32 i = 0; i < ar_arrlen(reflection_types); i++) {
         Usize count = 0;
         const spvc_reflected_resource *list = NULL;
         spvc_resources_get_resource_list_for_type(resources, reflection_types[i], &list, &count);
@@ -276,7 +277,6 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
             ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
             print_reflected_type(reflected_type);
         }
-        ar_debug("i: %u", i);
     }
 
     const char *result;
