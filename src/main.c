@@ -24,7 +24,7 @@
 #include <glslang/Public/resource_limits_c.h>
 #include <spirv_cross_c.h>
 
-ArStr compile_to_spv(ArArena *arena, const char *name, ArStr src) {
+ArStr compile_to_spv(ArArena *arena, ArStr src) {
     glslang_initialize_process();
 
     const char *code_cstr = ar_str_to_cstr(arena, src);
@@ -99,21 +99,87 @@ void error_cb(void *userdata, const char *error) {
     ar_error("%s", error);
 }
 
+// NOTE: Booleans reflect into unsigned integers.
+// bool -> uint
+// bvec2 -> uvec2
+// bvec3 -> uvec3
+// bvec4 -> uvec4
 typedef enum {
-    REFLECTED_DATA_TYPE_VOID = 1,
-    REFLECTED_DATA_TYPE_B32 = 2,
-    REFLECTED_DATA_TYPE_I32 = 7,
-    REFLECTED_DATA_TYPE_U32 = 8,
-    REFLECTED_DATA_TYPE_F32 = 13,
-    REFLECTED_DATA_TYPE_F64 = 14,
-    REFLECTED_DATA_TYPE_STRUCT = 15,
+    REFLECTED_DATA_TYPE_UNKNOWN,
+
+    REFLECTED_DATA_TYPE_VOID,
+    REFLECTED_DATA_TYPE_STRUCT,
+
+    // Scalers
+    REFLECTED_DATA_TYPE_I32,
+    REFLECTED_DATA_TYPE_U32,
+    REFLECTED_DATA_TYPE_F32,
+    REFLECTED_DATA_TYPE_F64,
+
+    // Vectors
+    REFLECTED_DATA_TYPE_IVEC2,
+    REFLECTED_DATA_TYPE_UVEC2,
+    REFLECTED_DATA_TYPE_VEC2,
+    REFLECTED_DATA_TYPE_DVEC2,
+
+    REFLECTED_DATA_TYPE_IVEC3,
+    REFLECTED_DATA_TYPE_UVEC3,
+    REFLECTED_DATA_TYPE_VEC3,
+    REFLECTED_DATA_TYPE_DVEC3,
+
+    REFLECTED_DATA_TYPE_IVEC4,
+    REFLECTED_DATA_TYPE_UVEC4,
+    REFLECTED_DATA_TYPE_VEC4,
+    REFLECTED_DATA_TYPE_DVEC4,
+
+    // Matrices
+    REFLECTED_DATA_TYPE_MAT2,
+    REFLECTED_DATA_TYPE_DMAT2,
+
+    REFLECTED_DATA_TYPE_MAT3,
+    REFLECTED_DATA_TYPE_DMAT3,
+
+    REFLECTED_DATA_TYPE_MAT4,
+    REFLECTED_DATA_TYPE_DMAT4,
+
+    REFLECTED_DATA_TYPE_COUNT,
 } ReflectedDataType;
 
-typedef enum {
-    REFLECTED_VECTOR_TYPE_SCALER,
-    REFLECTED_VECTOR_TYPE_VECTOR,
-    REFLECTED_VECTOR_TYPE_MATRIX,
-} ReflectedVectorType;
+const ArStr type_name[REFLECTED_DATA_TYPE_COUNT] = {
+    ar_str_lit("ERR::Unkown"),
+
+    ar_str_lit("void"),
+    ar_str_lit("struct"),
+
+    ar_str_lit("int"),
+    ar_str_lit("uint"),
+    ar_str_lit("float"),
+    ar_str_lit("double"),
+
+    ar_str_lit("ivec2"),
+    ar_str_lit("uvec2"),
+    ar_str_lit("vec2"),
+    ar_str_lit("dvec2"),
+
+    ar_str_lit("ivec3"),
+    ar_str_lit("uvec3"),
+    ar_str_lit("vec3"),
+    ar_str_lit("dvec3"),
+
+    ar_str_lit("ivec4"),
+    ar_str_lit("uvec4"),
+    ar_str_lit("vec4"),
+    ar_str_lit("dvec4"),
+
+    ar_str_lit("mat2"),
+    ar_str_lit("dmat2"),
+
+    ar_str_lit("mat3"),
+    ar_str_lit("dmat3"),
+
+    ar_str_lit("mat4"),
+    ar_str_lit("dmat4"),
+};
 
 typedef struct ReflectedType ReflectedType;
 struct ReflectedType {
@@ -132,6 +198,114 @@ struct ReflectedType {
     ReflectedType *members;
 };
 
+ReflectedDataType translate_type(spvc_basetype type, U32 vec_size, U32 cols) {
+    switch (type) {
+        case SPVC_BASETYPE_VOID:
+            return REFLECTED_DATA_TYPE_VOID;
+
+        // Booleans become uints for whatever reason.
+        case SPVC_BASETYPE_BOOLEAN:
+            break;
+
+        case SPVC_BASETYPE_INT8:
+            break;
+        case SPVC_BASETYPE_UINT8:
+            break;
+        case SPVC_BASETYPE_INT16:
+            break;
+        case SPVC_BASETYPE_UINT16:
+            break;
+
+        case SPVC_BASETYPE_INT32:
+            if (vec_size == 1 && cols == 1) {
+                return REFLECTED_DATA_TYPE_I32;
+            } else if (vec_size == 2 && cols == 1) {
+                return REFLECTED_DATA_TYPE_IVEC2;
+            } else if (vec_size == 3 && cols == 1) {
+                return REFLECTED_DATA_TYPE_IVEC3;
+            } else if (vec_size == 4 && cols == 1) {
+                return REFLECTED_DATA_TYPE_IVEC4;
+            }
+            break;
+
+        case SPVC_BASETYPE_UINT32:
+            if (vec_size == 1 && cols == 1) {
+                return REFLECTED_DATA_TYPE_U32;
+            } else if (vec_size == 2 && cols == 1) {
+                return REFLECTED_DATA_TYPE_UVEC2;
+            } else if (vec_size == 3 && cols == 1) {
+                return REFLECTED_DATA_TYPE_UVEC3;
+            } else if (vec_size == 4 && cols == 1) {
+                return REFLECTED_DATA_TYPE_UVEC4;
+            }
+            break;
+
+        case SPVC_BASETYPE_INT64:
+            break;
+        case SPVC_BASETYPE_UINT64:
+            break;
+        case SPVC_BASETYPE_ATOMIC_COUNTER:
+            break;
+        case SPVC_BASETYPE_FP16:
+            break;
+
+        case SPVC_BASETYPE_FP32:
+            if (vec_size == 1 && cols == 1) {
+                return REFLECTED_DATA_TYPE_F32;
+            } else if (vec_size == 2 && cols == 1) {
+                return REFLECTED_DATA_TYPE_VEC2;
+            } else if (vec_size == 3 && cols == 1) {
+                return REFLECTED_DATA_TYPE_VEC3;
+            } else if (vec_size == 4 && cols == 1) {
+                return REFLECTED_DATA_TYPE_VEC4;
+            } else if (vec_size == 2 && cols == 2) {
+                return REFLECTED_DATA_TYPE_MAT2;
+            } else if (vec_size == 3 && cols == 3) {
+                return REFLECTED_DATA_TYPE_MAT3;
+            } else if (vec_size == 4 && cols == 4) {
+                return REFLECTED_DATA_TYPE_MAT4;
+            }
+            break;
+
+        case SPVC_BASETYPE_FP64:
+            if (vec_size == 1 && cols == 1) {
+                return REFLECTED_DATA_TYPE_F64;
+            } else if (vec_size == 2 && cols == 1) {
+                return REFLECTED_DATA_TYPE_DVEC2;
+            } else if (vec_size == 3 && cols == 1) {
+                return REFLECTED_DATA_TYPE_DVEC3;
+            } else if (vec_size == 4 && cols == 1) {
+                return REFLECTED_DATA_TYPE_DVEC4;
+            } else if (vec_size == 2 && cols == 2) {
+                return REFLECTED_DATA_TYPE_DMAT2;
+            } else if (vec_size == 3 && cols == 3) {
+                return REFLECTED_DATA_TYPE_DMAT3;
+            } else if (vec_size == 4 && cols == 4) {
+                return REFLECTED_DATA_TYPE_DMAT4;
+            }
+            break;
+
+        case SPVC_BASETYPE_STRUCT:
+            return REFLECTED_DATA_TYPE_STRUCT;
+
+        case SPVC_BASETYPE_IMAGE:
+            break;
+        case SPVC_BASETYPE_SAMPLED_IMAGE:
+            break;
+        case SPVC_BASETYPE_SAMPLER:
+            break;
+        case SPVC_BASETYPE_ACCELERATION_STRUCTURE:
+            break;
+        case SPVC_BASETYPE_UNKNOWN:
+            break;
+        case SPVC_BASETYPE_INT_MAX:
+            break;
+    }
+
+    ar_error("Unkown: %d", type);
+    return REFLECTED_DATA_TYPE_UNKNOWN;
+}
+
 ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, ArStr name) {
     spvc_basetype basetype = spvc_type_get_basetype(type);
 
@@ -143,9 +317,6 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
             arr_dim_lens[i] = spvc_type_get_array_dimension(type, i);
         }
     }
-
-    U32 bit_width = spvc_type_get_bit_width(type);
-    // ar_debug("Bit width: %u", bit_width);
 
     // if vec_size == 1:
     //     type = scaler
@@ -159,7 +330,7 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
     U32 cols = spvc_type_get_columns(type);
 
     ReflectedType reflected = {
-        .data_type = (ReflectedDataType) basetype,
+        .data_type = (ReflectedDataType) translate_type(basetype, vec_size, cols),
         .name = ar_str_push_copy(arena, name),
         .array_dimensions = arr_dims,
         .array_dimension_lengths = arr_dim_lens,
@@ -229,7 +400,7 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
 }
 
 void print_reflected_type(ReflectedType t) {
-    ar_info("%.*s:", (I32) t.name.len, t.name.data);
+    ar_info("%.*s: %.*s", (I32) t.name.len, t.name.data, (I32) type_name[t.data_type].len, type_name[t.data_type].data);
     ar_info("  Array dimensions: %u", t.array_dimensions);
     for (U32 i = 0; i < t.array_dimensions; i++) {
         ar_info("  Array dimension[%u] length: %u", i, t.array_dimension_lengths[i]);
@@ -253,6 +424,7 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
 
     spvc_compiler compiler;
     spvc_context_create_compiler(ctx, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
+    // spvc_context_create_compiler(ctx, SPVC_BACKEND_NONE, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
 
     // Reflection
     spvc_resources resources;
@@ -272,7 +444,6 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
         for (U32 j = 0; j < count; j++) {
             spvc_reflected_resource resource = list[j];
             spvc_type type = spvc_compiler_get_type_handle(compiler, resource.type_id);
-            ar_debug("%d", j);
 
             ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
             print_reflected_type(reflected_type);
@@ -340,7 +511,7 @@ I32 main(I32 argc, char **argv) {
     // info(shader.program.vertex_source);
     // info(shader.program.fragment_source);
 
-    ArStr spv = compile_to_spv(arena, "vert", shader.program.vertex_source);
+    ArStr spv = compile_to_spv(arena, shader.program.vertex_source);
     ArStr glsl = compile_to_glsl(arena, spv);
     info(glsl);
 
