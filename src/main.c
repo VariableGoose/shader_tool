@@ -2,6 +2,7 @@
 #include "arkin_log.h"
 
 #include "internal.h"
+#include "spirv.h"
 
 //
 // Steps:
@@ -23,6 +24,7 @@
 #include <glslang/Include/glslang_c_shader_types.h>
 #include <glslang/Public/resource_limits_c.h>
 #include <spirv_cross_c.h>
+#include <stdio.h>
 
 ArStr compile_to_spv(ArArena *arena, ArStr src) {
     glslang_initialize_process();
@@ -109,6 +111,7 @@ typedef enum {
 
     REFLECTED_DATA_TYPE_VOID,
     REFLECTED_DATA_TYPE_STRUCT,
+    REFLECTED_DATA_TYPE_SAMPLER,
 
     // Scalers
     REFLECTED_DATA_TYPE_I32,
@@ -150,6 +153,7 @@ const ArStr type_name[REFLECTED_DATA_TYPE_COUNT] = {
 
     ar_str_lit("void"),
     ar_str_lit("struct"),
+    ar_str_lit("sampler"),
 
     ar_str_lit("int"),
     ar_str_lit("uint"),
@@ -196,6 +200,20 @@ struct ReflectedType {
 
     U32 member_count;
     ReflectedType *members;
+};
+
+typedef enum {
+    REFLECTION_INDEX_UNIFORM_BUFFER,
+    REFLECTION_INDEX_SAMPLER,
+    REFLECTION_INDEX_PUSH_CONSTANT,
+
+    REFLECTION_INDEX_COUNT,
+} ReflectionIndex;
+
+typedef struct ReflectedShader ReflectedShader;
+struct ReflectedShader {
+    ReflectedType *types[REFLECTION_INDEX_COUNT];
+    Usize count[REFLECTION_INDEX_COUNT];
 };
 
 ReflectedDataType translate_type(spvc_basetype type, U32 vec_size, U32 cols) {
@@ -291,7 +309,7 @@ ReflectedDataType translate_type(spvc_basetype type, U32 vec_size, U32 cols) {
         case SPVC_BASETYPE_IMAGE:
             break;
         case SPVC_BASETYPE_SAMPLED_IMAGE:
-            break;
+            return REFLECTED_DATA_TYPE_SAMPLER;
         case SPVC_BASETYPE_SAMPLER:
             break;
         case SPVC_BASETYPE_ACCELERATION_STRUCTURE:
@@ -399,21 +417,30 @@ ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type type, Ar
     return reflected;
 }
 
-void print_reflected_type(ReflectedType t) {
-    ar_info("%.*s: %.*s", (I32) t.name.len, t.name.data, (I32) type_name[t.data_type].len, type_name[t.data_type].data);
-    ar_info("  Array dimensions: %u", t.array_dimensions);
-    for (U32 i = 0; i < t.array_dimensions; i++) {
-        ar_info("  Array dimension[%u] length: %u", i, t.array_dimension_lengths[i]);
+void print_reflected_type(ReflectedType t, U32 level) {
+    U8 spaces[1024] = {0};
+    memset(spaces, ' ', level*4);
+    if (t.data_type == REFLECTED_DATA_TYPE_STRUCT) {
+        level++;
     }
-    ar_info("  Vector size: %u", t.vec_size);
-    ar_info("  Columns: %u", t.cols);
+
+    char arr[64] = {0};
+    U32 off = 0;
+    // Iterate backwards because the reflection gave the array dimensions in
+    // reverse order.
+    for (I32 i = t.array_dimensions - 1; i >= 0; i--) {
+        off += snprintf(&arr[off], 64 - off, "[%u]", t.array_dimension_lengths[i]);
+    }
+    ar_info("%s%.*s: %.*s%s", spaces, (I32) t.name.len, t.name.data, (I32) type_name[t.data_type].len, type_name[t.data_type].data, arr);
 
     for (U32 i = 0; i < t.member_count; i++) {
-        print_reflected_type(t.members[i]);
+        print_reflected_type(t.members[i], level);
     }
 }
 
-ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
+ReflectedShader reflect_spv(ArArena *arena, ArStr spv) {
+    ReflectedShader shader = {0}; 
+
     spvc_context ctx;
     spvc_context_create(&ctx);
 
@@ -423,8 +450,7 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
     spvc_context_parse_spirv(ctx, (const SpvId *) spv.data, spv.len / sizeof(SpvId), &ir);
 
     spvc_compiler compiler;
-    spvc_context_create_compiler(ctx, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
-    // spvc_context_create_compiler(ctx, SPVC_BACKEND_NONE, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
+    spvc_context_create_compiler(ctx, SPVC_BACKEND_NONE, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
 
     // Reflection
     spvc_resources resources;
@@ -438,26 +464,26 @@ ArStr compile_to_glsl(ArArena *arena, ArStr spv) {
     };
 
     for (U32 i = 0; i < ar_arrlen(reflection_types); i++) {
-        Usize count = 0;
         const spvc_reflected_resource *list = NULL;
-        spvc_resources_get_resource_list_for_type(resources, reflection_types[i], &list, &count);
-        for (U32 j = 0; j < count; j++) {
+        spvc_resources_get_resource_list_for_type(resources, reflection_types[i], &list, &shader.count[i]);
+        shader.types[i] = ar_arena_push_arr(arena, ReflectedType, shader.count[i]);
+        for (U32 j = 0; j < shader.count[i]; j++) {
             spvc_reflected_resource resource = list[j];
             spvc_type type = spvc_compiler_get_type_handle(compiler, resource.type_id);
 
-            ReflectedType reflected_type = reflect(arena, compiler, type, ar_str_cstr(resource.name));
-            print_reflected_type(reflected_type);
+            shader.types[i][j] = reflect(arena, compiler, type, ar_str_cstr(resource.name));
+            // print_reflected_type(reflected_type, 0);
         }
     }
 
-    const char *result;
-    spvc_compiler_compile(compiler, &result);
-    ArStr glsl_result = ar_str_cstr(result);
-    glsl_result = ar_str_push_copy(arena, glsl_result);
+    // const char *result;
+    // spvc_compiler_compile(compiler, &result);
+    // ArStr glsl_result = ar_str_cstr(result);
+    // glsl_result = ar_str_push_copy(arena, glsl_result);
 
     spvc_context_destroy(ctx);
 
-    return glsl_result;
+    return shader;
 }
 
 static void _info(ArStr str, const char *file, U32 line) {
@@ -512,8 +538,13 @@ I32 main(I32 argc, char **argv) {
     // info(shader.program.fragment_source);
 
     ArStr spv = compile_to_spv(arena, shader.program.vertex_source);
-    ArStr glsl = compile_to_glsl(arena, spv);
-    info(glsl);
+    ReflectedShader reflection = reflect_spv(arena, spv);
+
+    for (U32 i = 0; i < REFLECTION_INDEX_COUNT; i++) {
+        for (Usize j = 0; j < reflection.count[i]; j++) {
+            print_reflected_type(reflection.types[i][j], 0);
+        }
+    }
 
     ar_arena_destroy(&arena);
     arkin_terminate();

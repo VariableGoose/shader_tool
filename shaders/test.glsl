@@ -3,15 +3,21 @@
 #vert vs
 #include_module funcs
 
-// layout (binding = 0) uniform UniformBufferObject {
-//     mat4 model;
-//     mat4 view;
-//     mat4 projection;
-//     int arr[16];
-// } ubo;
+layout (binding = 0) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 projection;
+    int arr[16];
+} ubo;
+
+struct Structure {
+    vec2 arr[16][4];
+};
 
 // https://www.khronos.org/opengl/wiki/Data_Type_(GLSL)
 layout (binding = 1) uniform AllTypes {
+    Structure structure;
+
     // Scalers
     bool boolean;
     int integer;
@@ -47,13 +53,13 @@ layout (binding = 1) uniform AllTypes {
 
     mat4 float_mat4;
     dmat4 double_mat4;
-} all_types_array[2][4][8];
+} all_types_array[2];
 
-// layout (binding = 1) uniform sampler2D samp;
-// layout (binding = 2) uniform sampler2D other_samp;
-// layout (push_constant) uniform Consts {
-//     mat4 some_matrix;
-// } consts;
+layout (binding = 1) uniform sampler2D samp;
+layout (binding = 2) uniform sampler2D other_samp;
+layout (push_constant) uniform Consts {
+    mat4 some_matrix;
+} consts;
 
 layout (location = 0) in vec3 v_pos;
 layout (location = 1) in vec2 v_uv;
