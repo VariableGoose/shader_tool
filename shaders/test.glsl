@@ -68,7 +68,7 @@ layout (location = 0) out vec2 f_uv;
 
 void main() {
     f_uv = double_value(v_uv);
-    // gl_Position = ubo.projection * ubo.view * ubo.model * vec4(v_pos, 1.0);
+    gl_Position = ubo.projection * ubo.view * ubo.model * vec4(v_pos, 1.0);
 }
 #end
 

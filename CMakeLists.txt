@@ -28,10 +28,11 @@ set(SOURCES
     src/main.c
     src/utils.c
     src/parser.c
+    src/reflection.c
+    src/compiler.c
 )
 
 add_executable(${CMAKE_PROJECT_NAME} ${SOURCES})
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(${CMAKE_PROJECT_NAME} arkin glslang glslang-default-resource-limits SPIRV spirv-cross-c)
-# target_link_libraries(${CMAKE_PROJECT_NAME} arkin)
