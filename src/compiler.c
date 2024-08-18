@@ -65,7 +65,7 @@ static glslang_shader_t *create_shader(ArArena *arena, ArStr glsl, ShaderType ty
     return shader;
 }
 
-CompiledShader compile_shader(ArArena *arena, ArStr vertex_source, ArStr fragment_source) {
+CompiledShader compile_shader(ArArena *arena, ArStr shader_name, ArStr vertex_source, ArStr fragment_source) {
     glslang_initialize_process();
 
     glslang_shader_t *vertex_shader = create_shader(arena, vertex_source, SHADER_TYPE_VERTEX);
@@ -112,6 +112,7 @@ CompiledShader compile_shader(ArArena *arena, ArStr vertex_source, ArStr fragmen
     glslang_finalize_process();
 
     return (CompiledShader) {
+        .name = shader_name,
         .vertex = {
             .spv = vertex_spv,
             .reflection = reflect_spv(arena, vertex_spv),

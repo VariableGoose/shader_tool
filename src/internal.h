@@ -101,11 +101,13 @@ struct CompiledStage {
 
 typedef struct CompiledShader CompiledShader;
 struct CompiledShader {
+    ArStr name;
     CompiledStage vertex;
     CompiledStage fragment;
 };
 
-extern CompiledShader compile_shader(ArArena *arena, ArStr vertex_source, ArStr fragment_source);
+// shader_name is not copied onto the arena, only assigned to the returned CompiledShader.
+extern CompiledShader compile_shader(ArArena *arena, ArStr shader_name, ArStr vertex_source, ArStr fragment_source);
 extern ReflectedStage reflect_spv(ArArena *arena, ArStr spv);
 
 //

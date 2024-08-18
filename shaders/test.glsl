@@ -16,7 +16,7 @@ struct Structure {
 
 // https://www.khronos.org/opengl/wiki/Data_Type_(GLSL)
 layout (binding = 1) uniform AllTypes {
-    Structure structure;
+    Structure structure[2];
 
     // Scalers
     bool boolean;
