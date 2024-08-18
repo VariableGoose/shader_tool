@@ -88,4 +88,4 @@ void main() {
 }
 #end
 
-#program test_shader vs fs
+#program TestShader vs fs

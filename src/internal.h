@@ -12,7 +12,6 @@ struct ParsedShader {
     ArHashMap *ctypes;
 };
 
-
 extern ParsedShader parse_shader(ArArena *arena, ArStr source, ArStrList paths);
 
 // NOTE: Booleans reflect into unsigned integers.
@@ -81,7 +80,6 @@ struct ReflectedType {
 
 typedef enum {
     REFLECTION_INDEX_UNIFORM_BUFFER,
-    REFLECTION_INDEX_SAMPLER,
     REFLECTION_INDEX_PUSH_CONSTANT,
 
     REFLECTION_INDEX_COUNT,
@@ -106,8 +104,7 @@ struct CompiledShader {
     CompiledStage fragment;
 };
 
-// shader_name is not copied onto the arena, only assigned to the returned CompiledShader.
-extern CompiledShader compile_shader(ArArena *arena, ArStr shader_name, ArStr vertex_source, ArStr fragment_source);
+extern CompiledShader compile_shader(ArArena *arena, ParsedShader shader);
 extern ReflectedStage reflect_spv(ArArena *arena, ArStr spv);
 
 //

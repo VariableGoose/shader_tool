@@ -231,7 +231,6 @@ ReflectedStage reflect_spv(ArArena *arena, ArStr spv) {
 
     spvc_resource_type reflection_types[] = {
         SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
-        SPVC_RESOURCE_TYPE_SAMPLED_IMAGE,
         SPVC_RESOURCE_TYPE_PUSH_CONSTANT,
         // SPVC_RESOURCE_TYPE_STAGE_INPUT,
     };

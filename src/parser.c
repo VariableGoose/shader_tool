@@ -41,6 +41,7 @@ struct Parser {
     ModuleType current_module;
     ArStrList module_parts;
     ArHashMap *module_map;
+    ArHashMap *ctype_map;
     ArStr module_name;
     struct {
         ArStr name;
@@ -323,8 +324,12 @@ void expand_token(Parser *parser, Token token, ArStrList paths) {
             }
             ar_str_list_push(parser->arena, &parser->module_parts, module_value);
         } break;
-        case TOKEN_CTYPEDEF:
-            break;
+        case TOKEN_CTYPEDEF: {
+            ArArena *hm_arena = ar_hash_map_get_arena(parser->ctype_map);
+            ArStr glsl_type = ar_str_push_copy(hm_arena, token.args[0]);
+            ArStr ctype = ar_str_push_copy(hm_arena, token.args[1]);
+            ar_hash_map_insert(parser->ctype_map, glsl_type, ctype);
+        } break;
 
         case TOKEN_ERROR:
             ar_error("%.*s", (I32) token.error.len, token.error.data);
@@ -408,9 +413,22 @@ ParsedShader parse_shader(ArArena *arena, ArStr source, ArStrList paths) {
         .null_value = &(Module) {0},
     };
 
+    ArHashMapDesc ctype_map_desc = {
+        .arena = arena,
+        .capacity = 32,
+
+        .hash_func = hash_str,
+        .eq_func = str_eq,
+
+        .key_size = sizeof(ArStr),
+        .value_size = sizeof(ArStr),
+        .null_value = &(ArStr) {0},
+    };
+
     Parser parser = {
         .arena = scratch.arena,
         .module_map = ar_hash_map_init(module_map_desc),
+        .ctype_map = ar_hash_map_init(ctype_map_desc),
     };
 
     parse(&parser, source, paths);
@@ -421,7 +439,7 @@ ParsedShader parse_shader(ArArena *arena, ArStr source, ArStrList paths) {
             .vertex_source = ar_str_push_copy(arena, parser.program.vert.code),
             .fragment_source = ar_str_push_copy(arena, parser.program.frag.code),
         },
-        .ctypes = NULL,
+        .ctypes = parser.ctype_map,
     };
 
     ar_scratch_release(&scratch);
