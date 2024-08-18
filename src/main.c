@@ -79,7 +79,7 @@ void print_reflected_type(ReflectedType t, U32 level) {
     }
 }
 
-static void _info(ArStr str, const char *file, U32 line) {
+void _info(ArStr str, const char *file, U32 line) {
     U32 last = 0;
     U32 curr = 0;
     while (curr < str.len) {
@@ -125,22 +125,18 @@ I32 main(I32 argc, char **argv) {
     ar_str_list_push(arena, &path_list, file_dir);
     ar_str_list_push(arena, &path_list, ar_str_lit("."));
 
-    ParsedShader shader = parse_shader(arena, file, path_list);
-
-    ArStr vert_spv = compile_to_spv(arena, shader.program.vertex_source, SHADER_TYPE_VERTEX);
-    ArStr frag_spv = compile_to_spv(arena, shader.program.fragment_source, SHADER_TYPE_FRAGMENT);
-    ReflectedShader reflection = reflect_spv(arena, vert_spv);
+    ParsedShader parsed = parse_shader(arena, file, path_list);
+    CompiledShader compiled = compile_shader(arena, parsed.program.vertex_source, parsed.program.fragment_source);
 
     for (U32 i = 0; i < REFLECTION_INDEX_COUNT; i++) {
-        for (Usize j = 0; j < reflection.count[i]; j++) {
-            print_reflected_type(reflection.types[i][j], 0);
+        for (Usize j = 0; j < compiled.vertex.reflection.count[i]; j++) {
+            print_reflected_type(compiled.vertex.reflection.types[i][j], 0);
         }
     }
 
-    reflection = reflect_spv(arena, frag_spv);
     for (U32 i = 0; i < REFLECTION_INDEX_COUNT; i++) {
-        for (Usize j = 0; j < reflection.count[i]; j++) {
-            print_reflected_type(reflection.types[i][j], 0);
+        for (Usize j = 0; j < compiled.fragment.reflection.count[i]; j++) {
+            print_reflected_type(compiled.fragment.reflection.types[i][j], 0);
         }
     }
 

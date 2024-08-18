@@ -15,13 +15,6 @@ struct ParsedShader {
 
 extern ParsedShader parse_shader(ArArena *arena, ArStr source, ArStrList paths);
 
-typedef enum {
-    SHADER_TYPE_VERTEX,
-    SHADER_TYPE_FRAGMENT,
-} ShaderType;
-
-extern ArStr compile_to_spv(ArArena *arena, ArStr glsl, ShaderType type);
-
 // NOTE: Booleans reflect into unsigned integers.
 // bool -> uint
 // bvec2 -> uvec2
@@ -94,13 +87,26 @@ typedef enum {
     REFLECTION_INDEX_COUNT,
 } ReflectionIndex;
 
-typedef struct ReflectedShader ReflectedShader;
-struct ReflectedShader {
+typedef struct ReflectedStage ReflectedStage;
+struct ReflectedStage {
     ReflectedType *types[REFLECTION_INDEX_COUNT];
     Usize count[REFLECTION_INDEX_COUNT];
 };
 
-extern ReflectedShader reflect_spv(ArArena *arena, ArStr spv);
+typedef struct CompiledStage CompiledStage;
+struct CompiledStage {
+    ArStr spv;
+    ReflectedStage reflection;
+};
+
+typedef struct CompiledShader CompiledShader;
+struct CompiledShader {
+    CompiledStage vertex;
+    CompiledStage fragment;
+};
+
+extern CompiledShader compile_shader(ArArena *arena, ArStr vertex_source, ArStr fragment_source);
+extern ReflectedStage reflect_spv(ArArena *arena, ArStr spv);
 
 //
 // Utils

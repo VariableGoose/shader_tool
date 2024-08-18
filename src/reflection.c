@@ -211,8 +211,8 @@ static ReflectedType reflect(ArArena *arena, spvc_compiler compiler, spvc_type t
 }
 
 
-ReflectedShader reflect_spv(ArArena *arena, ArStr spv) {
-    ReflectedShader shader = {0}; 
+ReflectedStage reflect_spv(ArArena *arena, ArStr spv) {
+    ReflectedStage shader = {0}; 
 
     spvc_context ctx;
     spvc_context_create(&ctx);
@@ -252,4 +252,3 @@ ReflectedShader reflect_spv(ArArena *arena, ArStr spv) {
 
     return shader;
 }
-
