@@ -154,7 +154,9 @@ void write_reflected_type(FILE *fp, const ArHashMap *ctypes, const char *prefix,
         }
     }
 
-    for (U32 i = 0; i < type.array_dimensions; i++) {
+    // Iterate backwards because the reflection gave the array dimensions in
+    // reverse order.
+    for (I32 i = type.array_dimensions - 1; i >= 0; i--) {
         fprintf(fp, "[%u]", type.array_dimension_lengths[i]);
     }
     fprintf(fp, ";\n");
@@ -247,18 +249,6 @@ I32 main(I32 argc, char **argv) {
     CompiledShader compiled = compile_shader(arena, parsed);
 
     write_header(compiled, parsed.ctypes, "header.h");
-
-    // for (U32 i = 0; i < REFLECTION_INDEX_COUNT; i++) {
-    //     for (Usize j = 0; j < compiled.vertex.reflection.count[i]; j++) {
-    //         print_reflected_type(compiled.vertex.reflection.types[i][j], 0);
-    //     }
-    // }
-    //
-    // for (U32 i = 0; i < REFLECTION_INDEX_COUNT; i++) {
-    //     for (Usize j = 0; j < compiled.fragment.reflection.count[i]; j++) {
-    //         print_reflected_type(compiled.fragment.reflection.types[i][j], 0);
-    //     }
-    // }
 
     ar_arena_destroy(&arena);
     arkin_terminate();

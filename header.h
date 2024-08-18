@@ -13,7 +13,7 @@ struct TestShader_VS_UniformBufferObject {
 typedef struct TestShader_VS_AllTypes TestShader_VS_AllTypes;
 struct TestShader_VS_AllTypes {
     struct {
-        HMM_Vec2 arr[4][16];
+        HMM_Vec2 arr[16][4];
     } structure[2];
     U32 boolean;
     I32 integer;
