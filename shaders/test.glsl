@@ -55,11 +55,11 @@ layout (binding = 1) uniform AllTypes {
     dmat4 double_mat4;
 } all_types_array[2];
 
-layout (binding = 1) uniform sampler2D samp;
-layout (binding = 2) uniform sampler2D other_samp;
 layout (push_constant) uniform Consts {
     mat4 some_matrix;
 } consts;
+
+layout (binding = 0) uniform sampler2D samp;
 
 layout (location = 0) in vec3 v_pos;
 layout (location = 1) in vec2 v_uv;
@@ -79,9 +79,12 @@ layout (location = 0) out vec4 frag_color;
 
 layout (location = 0) in vec2 f_uv;
 
+layout (binding = 0) uniform sampler2D samp;
+layout (binding = 1) uniform sampler2D other_samp;
+
 void main() {
-    f_uv = half_value(f_uv);
-    frag_color = vec4(f_uv, 0.0, 1.0);
+    vec2 uv = half_value(f_uv);
+    frag_color = vec4(uv, 0.0, 1.0);
 }
 #end
 

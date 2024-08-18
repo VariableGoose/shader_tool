@@ -126,13 +126,18 @@ I32 main(I32 argc, char **argv) {
     ar_str_list_push(arena, &path_list, ar_str_lit("."));
 
     ParsedShader shader = parse_shader(arena, file, path_list);
-    // info(shader.program.name);
-    // info(shader.program.vertex_source);
-    // info(shader.program.fragment_source);
 
-    ArStr spv = compile_to_spv(arena, shader.program.vertex_source);
-    ReflectedShader reflection = reflect_spv(arena, spv);
+    ArStr vert_spv = compile_to_spv(arena, shader.program.vertex_source, SHADER_TYPE_VERTEX);
+    ArStr frag_spv = compile_to_spv(arena, shader.program.fragment_source, SHADER_TYPE_FRAGMENT);
+    ReflectedShader reflection = reflect_spv(arena, vert_spv);
 
+    for (U32 i = 0; i < REFLECTION_INDEX_COUNT; i++) {
+        for (Usize j = 0; j < reflection.count[i]; j++) {
+            print_reflected_type(reflection.types[i][j], 0);
+        }
+    }
+
+    reflection = reflect_spv(arena, frag_spv);
     for (U32 i = 0; i < REFLECTION_INDEX_COUNT; i++) {
         for (Usize j = 0; j < reflection.count[i]; j++) {
             print_reflected_type(reflection.types[i][j], 0);

@@ -12,9 +12,15 @@ struct ParsedShader {
     ArHashMap *ctypes;
 };
 
+
 extern ParsedShader parse_shader(ArArena *arena, ArStr source, ArStrList paths);
 
-extern ArStr compile_to_spv(ArArena *arena, ArStr glsl);
+typedef enum {
+    SHADER_TYPE_VERTEX,
+    SHADER_TYPE_FRAGMENT,
+} ShaderType;
+
+extern ArStr compile_to_spv(ArArena *arena, ArStr glsl, ShaderType type);
 
 // NOTE: Booleans reflect into unsigned integers.
 // bool -> uint

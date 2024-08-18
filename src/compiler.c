@@ -5,14 +5,24 @@
 #include <glslang/Include/glslang_c_shader_types.h>
 #include <glslang/Public/resource_limits_c.h>
 
-ArStr compile_to_spv(ArArena *arena, ArStr glsl) {
+ArStr compile_to_spv(ArArena *arena, ArStr glsl, ShaderType type) {
     glslang_initialize_process();
 
     const char *code_cstr = ar_str_to_cstr(arena, glsl);
 
+    glslang_stage_t stage;
+    switch (type) {
+        case SHADER_TYPE_VERTEX:
+            stage = GLSLANG_STAGE_VERTEX;
+            break;
+        case SHADER_TYPE_FRAGMENT:
+            stage = GLSLANG_STAGE_FRAGMENT;
+            break;
+    }
+
     glslang_input_t input = {
         .language = GLSLANG_SOURCE_GLSL,
-        .stage = GLSLANG_STAGE_VERTEX,
+        .stage = stage,
         .client = GLSLANG_CLIENT_VULKAN,
         .client_version = GLSLANG_TARGET_VULKAN_1_2,
         .target_language = GLSLANG_TARGET_SPV,
@@ -57,7 +67,7 @@ ArStr compile_to_spv(ArArena *arena, ArStr glsl) {
         return (ArStr) {0};
     }
 
-    glslang_program_SPIRV_generate(program, GLSLANG_STAGE_VERTEX);
+    glslang_program_SPIRV_generate(program, stage);
     U64 len = glslang_program_SPIRV_get_size(program) * sizeof(U32);
     U8 *data = ar_arena_push_arr_no_zero(arena, U8, len);
     glslang_program_SPIRV_get(program, (U32 *) data);
