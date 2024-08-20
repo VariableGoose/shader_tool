@@ -170,6 +170,9 @@ void write_reflected_types(FILE *fp, const ArHashMap *ctypes, const char *prefix
     }
 }
 
+const char *test = "hehe"
+                    "wow";
+
 void write_header(CompiledShader shader, const ArHashMap *ctypes, const char *filepath) {
     FILE *fp = fopen(filepath, "wb");
 
@@ -189,10 +192,11 @@ void write_header(CompiledShader shader, const ArHashMap *ctypes, const char *fi
     for (U64 i = 0; i < shader.vertex.spv.len; i++) {
         fprintf(fp, "\\x%.2x", shader.vertex.spv.data[i]);
         if ((i + 1) % 20 == 0) {
-            fprintf(fp, " \\\n");
-            for (U32 j = 0; j < len; j++) {
-                fprintf(fp, " ");
+            fprintf(fp, "\"\n");
+            for (U32 j = 0; j < len-1; j++) {
+                fputc(' ', fp);
             }
+            fputc('\"', fp);
         }
     }
     fprintf(fp, "\";\n");
@@ -209,10 +213,11 @@ void write_header(CompiledShader shader, const ArHashMap *ctypes, const char *fi
     for (U64 i = 0; i < shader.fragment.spv.len; i++) {
         fprintf(fp, "\\x%.2x", shader.fragment.spv.data[i]);
         if ((i + 1) % 20 == 0) {
-            fprintf(fp, " \\\n");
-            for (U32 j = 0; j < len; j++) {
-                fprintf(fp, " ");
+            fprintf(fp, "\"\n");
+            for (U32 j = 0; j < len-1; j++) {
+                fputc(' ', fp);
             }
+            fputc('\"', fp);
         }
     }
     fprintf(fp, "\";\n");
